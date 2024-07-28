@@ -9,7 +9,12 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 sympy = "^1.13.1"
+scipy = "^1.14.0"
 
+
+[tool.poetry.group.dev.dependencies]
+ipython = "^8.26.0"
+ipykernel = "^6.29.5"
 
 [build-system]
 requires = ["poetry-core"]
