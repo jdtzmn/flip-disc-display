@@ -1,0 +1,20 @@
+{
+  "cmake.configureOnOpen": false,
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": true,
+  "editor.defaultFormatter": "xaver.clang-format",
+  "c-cpp-flylint.cppcheck.enable": true,
+  "c-cpp-flylint.cppcheck.extraArgs": [
+    "--enable=all",
+  ],
+  "c-cpp-flylint.lizard.enable": false,
+  "c-cpp-flylint.clang.enable": false,
+  "c-cpp-flylint.flawfinder.enable": false,
+  "c-cpp-flylint.flexelint.enable": false,
+  "files.associations": {
+    "*.tsx": "typescriptreact",
+    ".env*": "dotenv",
+    "nimble_port.h": "c",
+    "util.h": "c"
+  }
+}

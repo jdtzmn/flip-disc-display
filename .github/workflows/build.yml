@@ -1,0 +1,72 @@
+name: Build
+on: [push]
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install linter dependencies
+        run: sudo apt-get install -y clang-format
+
+      - name: Install Ninja build system
+        run: sudo apt-get install -y ninja-build
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          create-symlink: true
+
+      # Install cppcheck manually to get the latest version
+      - name: Manually install cppcheck
+        env:
+          CPPCHECK_VERSION: 2.13.0
+        run: |
+          git clone https://github.com/danmar/cppcheck
+          cd cppcheck
+          git checkout tags/${CPPCHECK_VERSION}
+          mkdir build
+          cd build
+          cmake -GNinja ..
+          ninja
+          sudo ninja install
+
+      # Run linters and formatters
+      - name: Lint Files
+        run: make lint
+      - name: Check Formatting
+        run: make format-check
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    concurrency: # limit to 1 concurrent job since we're using a live device
+      group: embedded_test
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: platformio run
+
+      - name: Run tests on embedded target
+        env:
+          PLATFORMIO_AUTH_TOKEN: ${{ secrets.PLATFORMIO_AUTH_TOKEN }}
+        run: platformio remote test -e esp32dev -v
+
+      - name: Archive
+        uses: actions/upload-artifact@v2
+        with:
+          name: firmware
+          path: .pio/build/*/firmware.bin
