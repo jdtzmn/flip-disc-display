@@ -15,10 +15,16 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
+// H-Bride Configuration
+#define H_BRIDGE_IN_LEFT GPIO_NUM_1
+#define H_BRIDGE_IN_RIGHT GPIO_NUM_42
+#define H_BRIDGE_OUT_LEFT GPIO_NUM_41
+#define H_BRIDGE_OUT_RIGHT GPIO_NUM_2
+
 #define LEDC_TIMER LEDC_TIMER_0
 #define LEDC_MODE LEDC_LOW_SPEED_MODE
-#define LEDC_OUTPUT_PIN GPIO_NUM_18
-#define LEDC_CHANNEL LEDC_CHANNEL_0
+#define LEFT_LEDC_CHANNEL LEDC_CHANNEL_0
+#define RIGHT_LEDC_CHANNEL LEDC_CHANNEL_1
 #define LEDC_DUTY_RES LEDC_TIMER_10_BIT
 #define LEDC_DUTY \
   (pow(2, LEDC_DUTY_RES) * 0.8)  // Set duty percent. (2 ** 13) * %
@@ -58,42 +64,100 @@ static void ledc_init(void) {
                                     .clk_cfg = LEDC_AUTO_CLK};
   ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
-  // Prepare and then apply the LEDC PWM channel configuration
-  ledc_channel_config_t ledc_channel = {.speed_mode = LEDC_MODE,
-                                        .channel = LEDC_CHANNEL,
-                                        .timer_sel = LEDC_TIMER,
-                                        .intr_type = LEDC_INTR_DISABLE,
-                                        .gpio_num = LEDC_OUTPUT_PIN,
-                                        .duty = 0,
-                                        .hpoint = 0};
-  ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+  // Prepare and then apply the LEDC PWM channel configurations
+  ledc_channel_config_t left_ledc_channel = {.speed_mode = LEDC_MODE,
+                                             .channel = LEFT_LEDC_CHANNEL,
+                                             .timer_sel = LEDC_TIMER,
+                                             .intr_type = LEDC_INTR_DISABLE,
+                                             .gpio_num = H_BRIDGE_OUT_LEFT,
+                                             .duty = 0,
+                                             .hpoint = 0};
+  ledc_channel_config_t right_ledc_channel = {.speed_mode = LEDC_MODE,
+                                              .channel = RIGHT_LEDC_CHANNEL,
+                                              .timer_sel = LEDC_TIMER,
+                                              .intr_type = LEDC_INTR_DISABLE,
+                                              .gpio_num = H_BRIDGE_OUT_RIGHT,
+                                              .duty = 0,
+                                              .hpoint = 0};
+  ESP_ERROR_CHECK(ledc_channel_config(&left_ledc_channel));
+  ESP_ERROR_CHECK(ledc_channel_config(&right_ledc_channel));
+}
+
+void turn_off_bridge(void) {
+  // First, turn off both directions
+  printf("Turning off both directions\n");
+  ESP_ERROR_CHECK(gpio_set_level(H_BRIDGE_IN_LEFT, 0));
+  ESP_ERROR_CHECK(gpio_set_level(H_BRIDGE_IN_RIGHT, 0));
+
+  // Then, turn off the PWM signals
+  printf("Turning off the PWM signals\n");
+  ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEFT_LEDC_CHANNEL, 0));
+  ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, RIGHT_LEDC_CHANNEL, 0));
+
+  ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEFT_LEDC_CHANNEL));
+  ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, RIGHT_LEDC_CHANNEL));
+}
+
+enum HBridgeDirection { LEFT, RIGHT };
+
+void set_direction(enum HBridgeDirection direction) {
+  // Turn off the bridge
+  turn_off_bridge();
+
+  // Wait for the PWM signals to turn off
+  vTaskDelay(2 / portTICK_PERIOD_MS);
+
+  // Finally, turn on the desired direction
+  printf("Turning on the desired direction\n");
+  switch (direction) {
+    case LEFT:
+      ESP_ERROR_CHECK(gpio_set_level(H_BRIDGE_IN_RIGHT, 1));
+      ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEFT_LEDC_CHANNEL, LEDC_DUTY));
+      ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEFT_LEDC_CHANNEL));
+      printf("Right in on, ledc left out on\n");
+      break;
+    case RIGHT:
+      ESP_ERROR_CHECK(gpio_set_level(H_BRIDGE_IN_LEFT, 1));
+      ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, RIGHT_LEDC_CHANNEL, LEDC_DUTY));
+      ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, RIGHT_LEDC_CHANNEL));
+      printf("Left in on, ledc right out on\n");
+      break;
+  }
 }
 
 void app_main(void) {
   print_chip_info();
   ledc_init();
 
-  int remaining = 10;
-  int magnet_on = false;
+  int remaining = 5;
+  enum HBridgeDirection direction = LEFT;
 
+  // Configure H-Bridge pins
+  ESP_ERROR_CHECK(gpio_set_direction(H_BRIDGE_IN_LEFT, GPIO_MODE_OUTPUT));
+  ESP_ERROR_CHECK(gpio_set_direction(H_BRIDGE_IN_RIGHT, GPIO_MODE_OUTPUT));
+
+  // Set initial direction
+  set_direction(direction);
+
+  // Toggle direction every 10 seconds
   for (;;) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     remaining--;
-    printf("Switching to %s in %d seconds\n", magnet_on ? "off" : "on",
-           remaining);
+    printf("Switching to %s in %d seconds\n",
+           direction == LEFT ? "left" : "right", remaining);
 
     if (remaining == 0) {
-      remaining = 10;
-      magnet_on = !magnet_on;
+      remaining = 5;
+      direction = direction == LEFT ? RIGHT : LEFT;
 
-      if (magnet_on) {
-        ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, LEDC_DUTY));
-      } else {
-        ESP_ERROR_CHECK(ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, 0));
-      }
+      set_direction(direction);
+    }
 
-      ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, LEDC_CHANNEL));
+    // Only keep the magnet on for 1 second
+    if (remaining == 3) {
+      printf("Turning off the bridge\n");
+      turn_off_bridge();
     }
   }
 }
